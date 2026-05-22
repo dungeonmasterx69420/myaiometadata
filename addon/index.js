@@ -4763,6 +4763,584 @@ addon.get("/rating", (req, res) => {
   res.redirect(`/stremio/${user}/rating?${params.toString()}`);
 });
 
+// ============================================================
+// STREAMING SITE API ROUTES
+// ============================================================
+
+const { authenticateStreaming, signStreamingToken } = require('./lib/streamingAuth');
+const { getCachedChannels, getCachedEPG } = require('./lib/iptvParser');
+const jwt = require('jsonwebtoken');
+
+// Internal base URL for proxying to AIOMetadata Stremio routes
+const _internalBase = () => `http://localhost:${PORT}`;
+const AIOMETADATA_UUID = () => process.env.AIOMETADATA_USER_UUID || '';
+
+// --- Streaming admin helpers ---
+
+function requireAdmin(req, res, next) {
+  if (!req.streamingUser?.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+async function upsertKV(key, value) {
+  const json = JSON.stringify(value);
+  if (database.type === 'sqlite') {
+    await database.runQuery(
+      "INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+      [key, json]
+    );
+  } else {
+    await database.runQuery(
+      `INSERT INTO kv_store (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, json]
+    );
+  }
+}
+
+async function getUserConfig(userId) {
+  try {
+    const row = await database.getQuery(
+      "SELECT value FROM kv_store WHERE key = ?",
+      [`user_config:${userId}`]
+    );
+    return row ? JSON.parse(row.value) : null;
+  } catch { return null; }
+}
+
+// --- Streaming Auth ---
+
+// POST /api/streaming/auth/login
+// Body: { username, password }
+// Calls main site API to verify credentials, returns JWT
+addon.post('/api/streaming/auth/login', express.json(), async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const authApiUrl = process.env.STREAMING_AUTH_API_URL;
+    if (!authApiUrl) {
+      return res.status(500).json({ error: 'Auth API not configured' });
+    }
+
+    // Call main site API to verify credentials
+    let authResult;
+    try {
+      const response = await axios.post(authApiUrl, { username, password }, {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      authResult = response.data;
+    } catch (authErr) {
+      if (authErr.response && authErr.response.status === 401) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      return res.status(401).json({ error: 'Authentication failed' });
+    }
+
+    // Expect main site to return { id, username, email } or truthy success
+    const userId = authResult.id || authResult.user_id || username;
+    const userEmail = authResult.email || '';
+    const displayName = authResult.username || authResult.name || username;
+
+    const adminUsers = (process.env.STREAMING_ADMIN_USERS || '')
+      .split(',').map(u => u.trim().toLowerCase()).filter(Boolean);
+    const isAdmin = adminUsers.includes(displayName.toLowerCase()) ||
+                    adminUsers.includes(String(userId).toLowerCase());
+
+    // Track user profile for admin panel
+    try {
+      await upsertKV(`user_profile:${userId}`, {
+        id: userId, username: displayName, email: userEmail, lastLogin: new Date().toISOString()
+      });
+    } catch { /* non-fatal */ }
+
+    const token = signStreamingToken({ id: userId, username: displayName, email: userEmail, isAdmin });
+    res.json({ token, user: { id: userId, username: displayName, email: userEmail, isAdmin } });
+  } catch (error) {
+    consola.error('[Streaming Auth] Login error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/streaming/auth/verify
+addon.get('/api/streaming/auth/verify', authenticateStreaming, (req, res) => {
+  res.json({ user: req.streamingUser });
+});
+
+// --- IPTV ---
+
+const IPTV_M3U_URL = process.env.IPTV_M3U_URL || '';
+const IPTV_EPG_URL = process.env.IPTV_EPG_URL || '';
+
+// GET /api/streaming/iptv/channels?search=&group=
+addon.get('/api/streaming/iptv/channels', authenticateStreaming, async (req, res) => {
+  try {
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const m3uUrl = userCfg?.iptvM3uUrl || IPTV_M3U_URL;
+    if (!m3uUrl) return res.status(500).json({ error: 'IPTV not configured' });
+    let channels = await getCachedChannels(m3uUrl);
+    const { search, group } = req.query;
+    if (search) {
+      const q = search.toLowerCase();
+      channels = channels.filter(c => c.name.toLowerCase().includes(q));
+    }
+    if (group && group !== 'All') {
+      channels = channels.filter(c => c.group === group);
+    }
+    const groups = [...new Set(channels.map(c => c.group).filter(Boolean))].sort();
+    res.json({ channels, groups });
+  } catch (error) {
+    consola.error('[Streaming IPTV] Channels error:', error.message);
+    res.status(500).json({ error: 'Failed to load channels' });
+  }
+});
+
+// GET /api/streaming/iptv/groups
+addon.get('/api/streaming/iptv/groups', authenticateStreaming, async (req, res) => {
+  try {
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const m3uUrl = userCfg?.iptvM3uUrl || IPTV_M3U_URL;
+    if (!m3uUrl) return res.status(500).json({ error: 'IPTV not configured' });
+    const channels = await getCachedChannels(m3uUrl);
+    const groups = [...new Set(channels.map(c => c.group).filter(Boolean))].sort();
+    res.json({ groups });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load groups' });
+  }
+});
+
+// GET /api/streaming/iptv/epg?channelId=
+addon.get('/api/streaming/iptv/epg', authenticateStreaming, async (req, res) => {
+  try {
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const epgUrl = userCfg?.iptvEpgUrl || IPTV_EPG_URL;
+    if (!epgUrl) return res.json({});
+    const epg = await getCachedEPG(epgUrl);
+    const { channelId } = req.query;
+    if (channelId) {
+      return res.json({ programs: epg[channelId] || [] });
+    }
+    res.json(epg);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load EPG' });
+  }
+});
+
+// GET /api/streaming/iptv/favorites
+addon.get('/api/streaming/iptv/favorites', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const row = await database.getQuery(
+      "SELECT value FROM kv_store WHERE key = ?",
+      [`iptv_favorites:${userId}`]
+    );
+    const favorites = row ? JSON.parse(row.value) : [];
+    res.json({ favorites });
+  } catch (error) {
+    res.json({ favorites: [] });
+  }
+});
+
+// PUT /api/streaming/iptv/favorites
+addon.put('/api/streaming/iptv/favorites', authenticateStreaming, express.json(), async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const { favorites } = req.body;
+    if (!Array.isArray(favorites)) return res.status(400).json({ error: 'favorites must be an array' });
+
+    const key = `iptv_favorites:${userId}`;
+    const value = JSON.stringify(favorites);
+    if (database.type === 'sqlite') {
+      await database.runQuery(
+        "INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+        [key, value]
+      );
+    } else {
+      await database.runQuery(
+        `INSERT INTO kv_store (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key, value]
+      );
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    consola.error('[Streaming IPTV] Favorites save error:', error.message);
+    res.status(500).json({ error: 'Failed to save favorites' });
+  }
+});
+
+// --- VOD Streams (AIOStreams proxy) ---
+
+const AIOSTREAMS_URL = process.env.AIOSTREAMS_URL || '';
+
+// GET /api/streaming/streams/:type/:id
+// type = movie | series, id = tt1234567 or tt1234567:1:2
+addon.get('/api/streaming/streams/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const baseUrl = (userCfg?.aiostreamsUrl) || AIOSTREAMS_URL;
+    if (!baseUrl) return res.status(500).json({ error: 'AIOStreams not configured' });
+    const { type, id } = req.params;
+    const aioUrl = `${baseUrl.replace(/\/$/, '')}/stream/${type}/${encodeURIComponent(id)}.json`;
+    const response = await axios.get(aioUrl, { timeout: 30000 });
+    res.json(response.data);
+  } catch (error) {
+    consola.error('[Streaming Streams] Error:', error.message);
+    res.status(500).json({ streams: [], error: 'Failed to fetch streams' });
+  }
+});
+
+// GET /api/streaming/browse/trending?type=movie|series&page=1
+addon.get('/api/streaming/browse/trending', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const type = req.query.type === 'series' ? 'tv' : 'movie';
+    const page = parseInt(req.query.page) || 1;
+    const lang = req.query.lang || 'en-US';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/trending/${type}/week?api_key=${tmdbApiKey}&language=${lang}&page=${page}`
+    );
+    const results = response.data.results.map(item => ({
+      id: type === 'movie' ? `tt${item.imdb_id || ''}` : null,
+      tmdbId: item.id,
+      type: type === 'movie' ? 'movie' : 'series',
+      title: item.title || item.name,
+      poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+      backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+      overview: item.overview,
+      rating: item.vote_average,
+      year: (item.release_date || item.first_air_date || '').slice(0, 4),
+    }));
+    res.json({ results, page, total_pages: response.data.total_pages });
+  } catch (error) {
+    consola.error('[Streaming Browse] Trending error:', error.message);
+    res.status(500).json({ results: [] });
+  }
+});
+
+// GET /api/streaming/browse/search?q=&type=movie|series&page=1
+addon.get('/api/streaming/browse/search', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { q, type, page = 1, lang = 'en-US' } = req.query;
+    if (!q) return res.json({ results: [] });
+    const tmdbType = type === 'series' ? 'tv' : type === 'movie' ? 'movie' : 'multi';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/search/${tmdbType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(q)}&language=${lang}&page=${page}`
+    );
+    const results = response.data.results
+      .filter(item => item.media_type !== 'person' && (item.poster_path || item.title || item.name))
+      .map(item => ({
+        tmdbId: item.id,
+        type: item.media_type === 'tv' || type === 'series' ? 'series' : 'movie',
+        title: item.title || item.name,
+        poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+        backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+        overview: item.overview,
+        rating: item.vote_average,
+        year: (item.release_date || item.first_air_date || '').slice(0, 4),
+      }));
+    res.json({ results, page: response.data.page, total_pages: response.data.total_pages });
+  } catch (error) {
+    consola.error('[Streaming Browse] Search error:', error.message);
+    res.status(500).json({ results: [] });
+  }
+});
+
+// GET /api/streaming/browse/meta/:type/:tmdbId
+addon.get('/api/streaming/browse/meta/:type/:tmdbId', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { type, tmdbId } = req.params;
+    const lang = req.query.lang || 'en-US';
+    const tmdbType = type === 'series' ? 'tv' : 'movie';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/${tmdbType}/${tmdbId}?api_key=${tmdbApiKey}&language=${lang}&append_to_response=external_ids,videos,credits,seasons`
+    );
+    const item = response.data;
+    const meta = {
+      tmdbId: item.id,
+      imdbId: item.imdb_id || item.external_ids?.imdb_id,
+      type,
+      title: item.title || item.name,
+      poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+      backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+      overview: item.overview,
+      rating: item.vote_average,
+      year: (item.release_date || item.first_air_date || '').slice(0, 4),
+      genres: (item.genres || []).map(g => g.name),
+      runtime: item.runtime || item.episode_run_time?.[0],
+      seasons: item.seasons?.filter(s => s.season_number > 0).map(s => ({
+        number: s.season_number,
+        name: s.name,
+        episodes: s.episode_count,
+        poster: s.poster_path ? `https://image.tmdb.org/t/p/w500${s.poster_path}` : null,
+      })),
+      trailer: item.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube')?.key,
+      cast: item.credits?.cast?.slice(0, 10).map(c => ({ name: c.name, character: c.character, photo: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null })),
+    };
+    res.json(meta);
+  } catch (error) {
+    consola.error('[Streaming Browse] Meta error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
+});
+
+// GET /api/streaming/browse/season/:tmdbId/:season
+addon.get('/api/streaming/browse/season/:tmdbId/:season', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { tmdbId, season } = req.params;
+    const lang = req.query.lang || 'en-US';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${tmdbApiKey}&language=${lang}`
+    );
+    const eps = (response.data.episodes || []).map(e => ({
+      number: e.episode_number,
+      name: e.name,
+      overview: e.overview,
+      still: e.still_path ? `https://image.tmdb.org/t/p/w300${e.still_path}` : null,
+      airDate: e.air_date,
+      runtime: e.runtime,
+    }));
+    res.json({ episodes: eps });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch season' });
+  }
+});
+
+// --- AIOMetadata Catalog Integration ---
+
+function metaToContentItem(m) {
+  let tmdbId = null;
+  if (m.id && m.id.startsWith('tmdb:')) tmdbId = parseInt(m.id.replace('tmdb:', ''), 10);
+  return {
+    stremioId: m.id,
+    tmdbId,
+    imdbId: m.id && m.id.startsWith('tt') ? m.id : (m.imdb_id || null),
+    type: m.type === 'series' ? 'series' : m.type === 'anime' ? 'series' : 'movie',
+    title: m.name,
+    poster: m.poster || null,
+    backdrop: m.background || null,
+    overview: m.description || '',
+    rating: m.imdbRating ? parseFloat(m.imdbRating) : (m.rating || 0),
+    year: m.year ? String(m.year) : '',
+  };
+}
+
+// GET /api/streaming/catalogs/manifest
+// Returns the list of catalogs from AIOMetadata manifest for AIOMETADATA_USER_UUID
+addon.get('/api/streaming/catalogs/manifest', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  try {
+    const resp = await axios.get(`${_internalBase()}/stremio/${uuid}/manifest.json`, { timeout: 15000 });
+    const catalogs = (resp.data.catalogs || []).map(c => ({
+      id: c.id,
+      type: c.type,
+      name: c.name,
+      extra: c.extra || [],
+    }));
+    res.json({ catalogs });
+  } catch (error) {
+    consola.error('[Streaming Catalogs] Manifest error:', error.message);
+    res.status(500).json({ error: 'Failed to load catalog manifest' });
+  }
+});
+
+// GET /api/streaming/catalogs/:type/:catalogId?skip=0&genre=
+// Proxies to AIOMetadata catalog route and transforms metas to ContentItem format
+addon.get('/api/streaming/catalogs/:type/:catalogId', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  const { type, catalogId } = req.params;
+  const { skip, genre, search } = req.query;
+  let extraParts = [];
+  if (skip && parseInt(skip) > 0) extraParts.push(`skip=${skip}`);
+  if (genre) extraParts.push(`genre=${encodeURIComponent(genre)}`);
+  if (search) extraParts.push(`search=${encodeURIComponent(search)}`);
+  const extraSeg = extraParts.length > 0 ? `/${extraParts.join('&')}` : '';
+  const url = `${_internalBase()}/stremio/${uuid}/catalog/${type}/${encodeURIComponent(catalogId)}${extraSeg}.json`;
+  try {
+    const resp = await axios.get(url, { timeout: 30000 });
+    const results = (resp.data.metas || []).map(metaToContentItem);
+    res.json({ results });
+  } catch (error) {
+    consola.error('[Streaming Catalogs] Catalog fetch error:', error.message, 'url:', url);
+    res.status(500).json({ results: [], error: 'Failed to load catalog' });
+  }
+});
+
+// GET /api/streaming/aiometa/:type/:stremioId
+// Fetches full metadata from AIOMetadata for any Stremio ID (imdb, tmdb:, anilist:, etc.)
+addon.get('/api/streaming/aiometa/:type/:stremioId', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  const { type, stremioId } = req.params;
+  const url = `${_internalBase()}/stremio/${uuid}/meta/${type}/${encodeURIComponent(stremioId)}.json`;
+  try {
+    const resp = await axios.get(url, { timeout: 30000 });
+    const m = resp.data.meta;
+    if (!m) return res.status(404).json({ error: 'Not found' });
+    const meta = {
+      ...metaToContentItem(m),
+      genres: m.genres || [],
+      runtime: m.runtime || null,
+      trailer: m.trailers?.[0]?.source || null,
+      cast: (m.cast || []).slice(0, 10).map(c => ({
+        name: c.name || c,
+        character: c.character || '',
+        photo: c.photo || null,
+      })),
+      seasons: m.videos
+        ? [...new Set(m.videos.filter(v => v.season > 0).map(v => v.season))]
+            .sort((a, b) => a - b)
+            .map(n => ({
+              number: n,
+              name: `Season ${n}`,
+              episodes: m.videos.filter(v => v.season === n).length,
+              poster: null,
+            }))
+        : null,
+      videos: m.videos || null,
+    };
+    res.json(meta);
+  } catch (error) {
+    consola.error('[Streaming AIOmeta] Error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
+});
+
+// --- Watch Progress ---
+
+// GET /api/streaming/progress — all in-progress items for current user
+addon.get('/api/streaming/progress', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const rows = await database.allQuery(
+      `SELECT key, value FROM kv_store WHERE key LIKE 'progress:${userId}:%' ORDER BY updated_at DESC`,
+      []
+    );
+    const items = rows.map(r => JSON.parse(r.value));
+    res.json({ items });
+  } catch {
+    res.json({ items: [] });
+  }
+});
+
+// GET /api/streaming/progress/:type/:id — progress for a single item
+addon.get('/api/streaming/progress/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const key = `progress:${userId}:${req.params.type}:${decodeURIComponent(req.params.id)}`;
+    const row = await database.getQuery("SELECT value FROM kv_store WHERE key = ?", [key]);
+    res.json(row ? JSON.parse(row.value) : null);
+  } catch {
+    res.json(null);
+  }
+});
+
+// PUT /api/streaming/progress/:type/:id — save/update progress
+addon.put('/api/streaming/progress/:type/:id', authenticateStreaming, express.json(), async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const contentId = decodeURIComponent(req.params.id);
+    const key = `progress:${userId}:${req.params.type}:${contentId}`;
+    await upsertKV(key, {
+      ...req.body,
+      type: req.params.type,
+      contentId,
+      updatedAt: new Date().toISOString(),
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to save progress' });
+  }
+});
+
+// DELETE /api/streaming/progress/:type/:id — dismiss from continue watching
+addon.delete('/api/streaming/progress/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const key = `progress:${userId}:${req.params.type}:${decodeURIComponent(req.params.id)}`;
+    await database.runQuery("DELETE FROM kv_store WHERE key = ?", [key]);
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to remove progress' });
+  }
+});
+
+// --- Streaming Admin ---
+
+// GET /api/streaming/admin/users
+addon.get('/api/streaming/admin/users', authenticateStreaming, requireAdmin, async (req, res) => {
+  try {
+    const profileRows = await database.allQuery(
+      "SELECT key, value, updated_at FROM kv_store WHERE key LIKE 'user_profile:%' ORDER BY updated_at DESC",
+      []
+    );
+    const users = await Promise.all(profileRows.map(async (row) => {
+      const profile = JSON.parse(row.value);
+      const configRow = await database.getQuery(
+        "SELECT value FROM kv_store WHERE key = ?",
+        [`user_config:${profile.id}`]
+      );
+      const config = configRow ? JSON.parse(configRow.value) : {};
+      return { ...profile, config };
+    }));
+    res.json({ users });
+  } catch (error) {
+    consola.error('[Streaming Admin] Users list error:', error.message);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+// PUT /api/streaming/admin/users/:userId/config
+addon.put('/api/streaming/admin/users/:userId/config', authenticateStreaming, requireAdmin, express.json(), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { aiostreamsUrl, iptvM3uUrl, iptvEpgUrl, notes } = req.body;
+    const existing = await getUserConfig(userId) || {};
+    const updated = {
+      ...existing,
+      ...(aiostreamsUrl !== undefined ? { aiostreamsUrl: aiostreamsUrl || null } : {}),
+      ...(iptvM3uUrl !== undefined ? { iptvM3uUrl: iptvM3uUrl || null } : {}),
+      ...(iptvEpgUrl !== undefined ? { iptvEpgUrl: iptvEpgUrl || null } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    };
+    await upsertKV(`user_config:${userId}`, updated);
+    res.json({ ok: true, config: updated });
+  } catch (error) {
+    consola.error('[Streaming Admin] Config update error:', error.message);
+    res.status(500).json({ error: 'Failed to update user config' });
+  }
+});
+
+// DELETE /api/streaming/admin/users/:userId/config
+addon.delete('/api/streaming/admin/users/:userId/config', authenticateStreaming, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    await database.runQuery("DELETE FROM kv_store WHERE key = ?", [`user_config:${userId}`]);
+    res.json({ ok: true });
+  } catch (error) {
+    consola.error('[Streaming Admin] Config delete error:', error.message);
+    res.status(500).json({ error: 'Failed to reset user config' });
+  }
+});
+
+// ============================================================
+// END STREAMING SITE API ROUTES
+// ============================================================
+
 addon.use(favicon(path.join(publicDir, 'favicon.png')));
 addon.use('/configure', express.static(clientDistDir));
 addon.use(express.static(publicDir));
@@ -6126,6 +6704,12 @@ addon.post("/api/dashboard/maintenance/execute", requireDashboardAdmin, async (r
   }
 });
 
+
+// SPA catch-all: serve index.html for /app/* so React Router handles navigation
+addon.get('/app/*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(clientIndexPath);
+});
 
 // Blocking startup function that waits for cache warming
 async function startServerWithCacheWarming() {
