@@ -4763,6 +4763,306 @@ addon.get("/rating", (req, res) => {
   res.redirect(`/stremio/${user}/rating?${params.toString()}`);
 });
 
+// ============================================================
+// STREAMING SITE API ROUTES
+// ============================================================
+
+const { authenticateStreaming, signStreamingToken } = require('./lib/streamingAuth');
+const { getCachedChannels, getCachedEPG } = require('./lib/iptvParser');
+const jwt = require('jsonwebtoken');
+
+// --- Streaming Auth ---
+
+// POST /api/streaming/auth/login
+// Body: { username, password }
+// Calls main site API to verify credentials, returns JWT
+addon.post('/api/streaming/auth/login', express.json(), async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const authApiUrl = process.env.STREAMING_AUTH_API_URL;
+    if (!authApiUrl) {
+      return res.status(500).json({ error: 'Auth API not configured' });
+    }
+
+    // Call main site API to verify credentials
+    let authResult;
+    try {
+      const response = await axios.post(authApiUrl, { username, password }, {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      authResult = response.data;
+    } catch (authErr) {
+      if (authErr.response && authErr.response.status === 401) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      return res.status(401).json({ error: 'Authentication failed' });
+    }
+
+    // Expect main site to return { id, username, email } or truthy success
+    const userId = authResult.id || authResult.user_id || username;
+    const userEmail = authResult.email || '';
+    const displayName = authResult.username || authResult.name || username;
+
+    const token = signStreamingToken({ id: userId, username: displayName, email: userEmail });
+    res.json({ token, user: { id: userId, username: displayName, email: userEmail } });
+  } catch (error) {
+    consola.error('[Streaming Auth] Login error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/streaming/auth/verify
+addon.get('/api/streaming/auth/verify', authenticateStreaming, (req, res) => {
+  res.json({ user: req.streamingUser });
+});
+
+// --- IPTV ---
+
+const IPTV_M3U_URL = process.env.IPTV_M3U_URL || '';
+const IPTV_EPG_URL = process.env.IPTV_EPG_URL || '';
+
+// GET /api/streaming/iptv/channels?search=&group=
+addon.get('/api/streaming/iptv/channels', authenticateStreaming, async (req, res) => {
+  try {
+    if (!IPTV_M3U_URL) return res.status(500).json({ error: 'IPTV not configured' });
+    let channels = await getCachedChannels(IPTV_M3U_URL);
+    const { search, group } = req.query;
+    if (search) {
+      const q = search.toLowerCase();
+      channels = channels.filter(c => c.name.toLowerCase().includes(q));
+    }
+    if (group && group !== 'All') {
+      channels = channels.filter(c => c.group === group);
+    }
+    const groups = [...new Set(channels.map(c => c.group).filter(Boolean))].sort();
+    res.json({ channels, groups });
+  } catch (error) {
+    consola.error('[Streaming IPTV] Channels error:', error.message);
+    res.status(500).json({ error: 'Failed to load channels' });
+  }
+});
+
+// GET /api/streaming/iptv/groups
+addon.get('/api/streaming/iptv/groups', authenticateStreaming, async (req, res) => {
+  try {
+    if (!IPTV_M3U_URL) return res.status(500).json({ error: 'IPTV not configured' });
+    const channels = await getCachedChannels(IPTV_M3U_URL);
+    const groups = [...new Set(channels.map(c => c.group).filter(Boolean))].sort();
+    res.json({ groups });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load groups' });
+  }
+});
+
+// GET /api/streaming/iptv/epg?channelId=
+addon.get('/api/streaming/iptv/epg', authenticateStreaming, async (req, res) => {
+  try {
+    if (!IPTV_EPG_URL) return res.json({});
+    const epg = await getCachedEPG(IPTV_EPG_URL);
+    const { channelId } = req.query;
+    if (channelId) {
+      return res.json({ programs: epg[channelId] || [] });
+    }
+    res.json(epg);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load EPG' });
+  }
+});
+
+// GET /api/streaming/iptv/favorites
+addon.get('/api/streaming/iptv/favorites', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const row = await database.getQuery(
+      "SELECT value FROM kv_store WHERE key = ?",
+      [`iptv_favorites:${userId}`]
+    );
+    const favorites = row ? JSON.parse(row.value) : [];
+    res.json({ favorites });
+  } catch (error) {
+    res.json({ favorites: [] });
+  }
+});
+
+// PUT /api/streaming/iptv/favorites
+addon.put('/api/streaming/iptv/favorites', authenticateStreaming, express.json(), async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const { favorites } = req.body;
+    if (!Array.isArray(favorites)) return res.status(400).json({ error: 'favorites must be an array' });
+
+    const key = `iptv_favorites:${userId}`;
+    const value = JSON.stringify(favorites);
+    if (database.type === 'sqlite') {
+      await database.runQuery(
+        "INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+        [key, value]
+      );
+    } else {
+      await database.runQuery(
+        `INSERT INTO kv_store (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key, value]
+      );
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    consola.error('[Streaming IPTV] Favorites save error:', error.message);
+    res.status(500).json({ error: 'Failed to save favorites' });
+  }
+});
+
+// --- VOD Streams (AIOStreams proxy) ---
+
+const AIOSTREAMS_URL = process.env.AIOSTREAMS_URL || '';
+
+// GET /api/streaming/streams/:type/:id
+// type = movie | series, id = tt1234567 or tt1234567:1:2
+addon.get('/api/streaming/streams/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    if (!AIOSTREAMS_URL) return res.status(500).json({ error: 'AIOStreams not configured' });
+    const { type, id } = req.params;
+    const aioUrl = `${AIOSTREAMS_URL.replace(/\/$/, '')}/stream/${type}/${encodeURIComponent(id)}.json`;
+    const response = await axios.get(aioUrl, { timeout: 30000 });
+    res.json(response.data);
+  } catch (error) {
+    consola.error('[Streaming Streams] Error:', error.message);
+    res.status(500).json({ streams: [], error: 'Failed to fetch streams' });
+  }
+});
+
+// GET /api/streaming/browse/trending?type=movie|series&page=1
+addon.get('/api/streaming/browse/trending', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const type = req.query.type === 'series' ? 'tv' : 'movie';
+    const page = parseInt(req.query.page) || 1;
+    const lang = req.query.lang || 'en-US';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/trending/${type}/week?api_key=${tmdbApiKey}&language=${lang}&page=${page}`
+    );
+    const results = response.data.results.map(item => ({
+      id: type === 'movie' ? `tt${item.imdb_id || ''}` : null,
+      tmdbId: item.id,
+      type: type === 'movie' ? 'movie' : 'series',
+      title: item.title || item.name,
+      poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+      backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+      overview: item.overview,
+      rating: item.vote_average,
+      year: (item.release_date || item.first_air_date || '').slice(0, 4),
+    }));
+    res.json({ results, page, total_pages: response.data.total_pages });
+  } catch (error) {
+    consola.error('[Streaming Browse] Trending error:', error.message);
+    res.status(500).json({ results: [] });
+  }
+});
+
+// GET /api/streaming/browse/search?q=&type=movie|series&page=1
+addon.get('/api/streaming/browse/search', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { q, type, page = 1, lang = 'en-US' } = req.query;
+    if (!q) return res.json({ results: [] });
+    const tmdbType = type === 'series' ? 'tv' : type === 'movie' ? 'movie' : 'multi';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/search/${tmdbType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(q)}&language=${lang}&page=${page}`
+    );
+    const results = response.data.results
+      .filter(item => item.media_type !== 'person' && (item.poster_path || item.title || item.name))
+      .map(item => ({
+        tmdbId: item.id,
+        type: item.media_type === 'tv' || type === 'series' ? 'series' : 'movie',
+        title: item.title || item.name,
+        poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+        backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+        overview: item.overview,
+        rating: item.vote_average,
+        year: (item.release_date || item.first_air_date || '').slice(0, 4),
+      }));
+    res.json({ results, page: response.data.page, total_pages: response.data.total_pages });
+  } catch (error) {
+    consola.error('[Streaming Browse] Search error:', error.message);
+    res.status(500).json({ results: [] });
+  }
+});
+
+// GET /api/streaming/browse/meta/:type/:tmdbId
+addon.get('/api/streaming/browse/meta/:type/:tmdbId', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { type, tmdbId } = req.params;
+    const lang = req.query.lang || 'en-US';
+    const tmdbType = type === 'series' ? 'tv' : 'movie';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/${tmdbType}/${tmdbId}?api_key=${tmdbApiKey}&language=${lang}&append_to_response=external_ids,videos,credits,seasons`
+    );
+    const item = response.data;
+    const meta = {
+      tmdbId: item.id,
+      imdbId: item.imdb_id || item.external_ids?.imdb_id,
+      type,
+      title: item.title || item.name,
+      poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+      backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+      overview: item.overview,
+      rating: item.vote_average,
+      year: (item.release_date || item.first_air_date || '').slice(0, 4),
+      genres: (item.genres || []).map(g => g.name),
+      runtime: item.runtime || item.episode_run_time?.[0],
+      seasons: item.seasons?.filter(s => s.season_number > 0).map(s => ({
+        number: s.season_number,
+        name: s.name,
+        episodes: s.episode_count,
+        poster: s.poster_path ? `https://image.tmdb.org/t/p/w500${s.poster_path}` : null,
+      })),
+      trailer: item.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube')?.key,
+      cast: item.credits?.cast?.slice(0, 10).map(c => ({ name: c.name, character: c.character, photo: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null })),
+    };
+    res.json(meta);
+  } catch (error) {
+    consola.error('[Streaming Browse] Meta error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
+});
+
+// GET /api/streaming/browse/season/:tmdbId/:season
+addon.get('/api/streaming/browse/season/:tmdbId/:season', authenticateStreaming, async (req, res) => {
+  try {
+    const tmdbApiKey = process.env.TMDB_API;
+    if (!tmdbApiKey) return res.status(500).json({ error: 'TMDB not configured' });
+    const { tmdbId, season } = req.params;
+    const lang = req.query.lang || 'en-US';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${tmdbApiKey}&language=${lang}`
+    );
+    const eps = (response.data.episodes || []).map(e => ({
+      number: e.episode_number,
+      name: e.name,
+      overview: e.overview,
+      still: e.still_path ? `https://image.tmdb.org/t/p/w300${e.still_path}` : null,
+      airDate: e.air_date,
+      runtime: e.runtime,
+    }));
+    res.json({ episodes: eps });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch season' });
+  }
+});
+
+// ============================================================
+// END STREAMING SITE API ROUTES
+// ============================================================
+
 addon.use(favicon(path.join(publicDir, 'favicon.png')));
 addon.use('/configure', express.static(clientDistDir));
 addon.use(express.static(publicDir));
@@ -6126,6 +6426,12 @@ addon.post("/api/dashboard/maintenance/execute", requireDashboardAdmin, async (r
   }
 });
 
+
+// SPA catch-all: serve index.html for /app/* so React Router handles navigation
+addon.get('/app/*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(clientIndexPath);
+});
 
 // Blocking startup function that waits for cache warming
 async function startServerWithCacheWarming() {
