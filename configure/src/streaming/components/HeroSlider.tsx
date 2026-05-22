@@ -95,14 +95,20 @@ export function HeroSlider({ items }: HeroSliderProps) {
           {/* Buttons */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate(`/app/watch/${item.type}/${item.tmdbId}`)}
+              onClick={() => {
+                const id = item.stremioId || (item.tmdbId ? `tmdb:${item.tmdbId}` : null);
+                if (id) navigate(`/app/watch/${item.type}/${encodeURIComponent(id)}`);
+              }}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-lg transition-all duration-200 text-sm shadow-lg hover:shadow-emerald-900/50"
             >
               <Play size={16} className="fill-white" />
               Play Now
             </button>
             <button
-              onClick={() => navigate(`/app/watch/${item.type}/${item.tmdbId}`)}
+              onClick={() => {
+                const id = item.stremioId || (item.tmdbId ? `tmdb:${item.tmdbId}` : null);
+                if (id) navigate(`/app/watch/${item.type}/${encodeURIComponent(id)}`);
+              }}
               className="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-bold px-5 py-2.5 rounded-lg transition-all duration-200 text-sm border border-white/30"
             >
               <Info size={16} />

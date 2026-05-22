@@ -28,7 +28,7 @@ function StreamingRoutes() {
       <Route path="login" element={<Login />} />
       <Route path="" element={<ProtectedRoute><Home /></ProtectedRoute>} />
       <Route path="search" element={<ProtectedRoute><Search /></ProtectedRoute>} />
-      <Route path="watch/:type/:tmdbId" element={<ProtectedRoute><Detail /></ProtectedRoute>} />
+      <Route path="watch/:type/:id" element={<ProtectedRoute><Detail /></ProtectedRoute>} />
       <Route path="iptv" element={<ProtectedRoute><IPTVChannels /></ProtectedRoute>} />
       <Route path="iptv/watch/:channelId" element={<ProtectedRoute><IPTVPlayer /></ProtectedRoute>} />
       <Route path="iptv/guide" element={<ProtectedRoute><EPGGuide /></ProtectedRoute>} />

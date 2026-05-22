@@ -1,22 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { HeroSlider } from '../components/HeroSlider';
 import { ContentRow } from '../components/ContentRow';
-import { getTrending } from '../lib/api';
-import type { ContentItem } from '../lib/api';
+import { getCatalogsManifest, getCatalog, getTrending } from '../lib/api';
+import type { ContentItem, CatalogEntry } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
+
+interface CatalogRow {
+  catalog: CatalogEntry;
+  items: ContentItem[];
+  loading: boolean;
+  error: boolean;
+}
 
 export default function Home() {
   const { token, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [trendingMovies, setTrendingMovies] = useState<ContentItem[]>([]);
-  const [trendingSeries, setTrendingSeries] = useState<ContentItem[]>([]);
-  const [loadingMovies, setLoadingMovies] = useState(true);
-  const [loadingSeries, setLoadingSeries] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [heroItems, setHeroItems] = useState<ContentItem[]>([]);
+  const [rows, setRows] = useState<CatalogRow[]>([]);
+  const [initializing, setInitializing] = useState(true);
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !token) {
@@ -25,22 +31,85 @@ export default function Home() {
   }, [token, authLoading, navigate]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || fetchedRef.current) return;
+    fetchedRef.current = true;
 
-    setLoadingMovies(true);
-    getTrending('movie')
-      .then((data) => setTrendingMovies(data.results))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load movies'))
-      .finally(() => setLoadingMovies(false));
+    async function loadCatalogs() {
+      try {
+        const manifest = await getCatalogsManifest();
+        const catalogs = manifest.catalogs
+          .filter((c) => !c.id.toLowerCase().includes('search'))
+          .slice(0, 20);
 
-    setLoadingSeries(true);
-    getTrending('series')
-      .then((data) => setTrendingSeries(data.results))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load TV shows'))
-      .finally(() => setLoadingSeries(false));
+        if (catalogs.length === 0) {
+          await loadFallback();
+          return;
+        }
+
+        // Initialize rows in order with loading state
+        setRows(catalogs.map((c) => ({ catalog: c, items: [], loading: true, error: false })));
+        setInitializing(false);
+
+        // Load each row independently
+        catalogs.forEach((cat, idx) => {
+          getCatalog(cat.type, cat.id)
+            .then((data) => {
+              setRows((prev) => {
+                const next = [...prev];
+                next[idx] = { ...next[idx], items: data.results, loading: false };
+                // Use first row with backdrop items for hero
+                if (idx === 0 || heroItems.length === 0) {
+                  const withBackdrop = data.results.filter((r) => r.backdrop);
+                  if (withBackdrop.length > 0) {
+                    setHeroItems(withBackdrop.slice(0, 5));
+                  } else if (data.results.length > 0) {
+                    setHeroItems(data.results.slice(0, 5));
+                  }
+                }
+                return next;
+              });
+            })
+            .catch(() => {
+              setRows((prev) => {
+                const next = [...prev];
+                next[idx] = { ...next[idx], loading: false, error: true };
+                return next;
+              });
+            });
+        });
+      } catch {
+        await loadFallback();
+      }
+    }
+
+    async function loadFallback() {
+      setInitializing(false);
+      const movieCat: CatalogEntry = { id: '__tmdb_movies', type: 'movie', name: 'Trending Movies', extra: [] };
+      const seriesCat: CatalogEntry = { id: '__tmdb_series', type: 'series', name: 'Trending TV Shows', extra: [] };
+      setRows([
+        { catalog: movieCat, items: [], loading: true, error: false },
+        { catalog: seriesCat, items: [], loading: true, error: false },
+      ]);
+
+      try {
+        const [moviesData, seriesData] = await Promise.all([
+          getTrending('movie'),
+          getTrending('series'),
+        ]);
+        setHeroItems(moviesData.results.filter((r) => r.backdrop).slice(0, 5));
+        setRows([
+          { catalog: movieCat, items: moviesData.results, loading: false, error: false },
+          { catalog: seriesCat, items: seriesData.results, loading: false, error: false },
+        ]);
+      } catch {
+        setRows((prev) => prev.map((r) => ({ ...r, loading: false, error: true })));
+      }
+    }
+
+    loadCatalogs();
   }, [token]);
 
-  if (authLoading) {
+  if (authLoading || (initializing && rows.length === 0)) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <Loader2 size={40} className="text-emerald-500 animate-spin" />
@@ -54,41 +123,19 @@ export default function Home() {
     <div className="min-h-screen bg-gray-950 text-white">
       <Navbar />
 
-      {/* Hero slider */}
       <div className="pt-16">
-        {loadingMovies && trendingMovies.length === 0 ? (
-          <div
-            className="w-full bg-gray-900 flex items-center justify-center"
-            style={{ minHeight: '50vh' }}
-          >
-            <Loader2 size={40} className="text-emerald-500 animate-spin" />
-          </div>
-        ) : (
-          <HeroSlider items={trendingMovies.slice(0, 5)} />
-        )}
+        <HeroSlider items={heroItems} />
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="px-6 py-3">
-          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg px-4 py-2.5 text-emerald-400 text-sm">
-            {error}
-          </div>
-        </div>
-      )}
-
-      {/* Content rows */}
       <div className="py-8">
-        <ContentRow
-          title="Trending Movies"
-          items={trendingMovies}
-          isLoading={loadingMovies}
-        />
-        <ContentRow
-          title="Trending TV Shows"
-          items={trendingSeries}
-          isLoading={loadingSeries}
-        />
+        {rows.map((row) => (
+          <ContentRow
+            key={`${row.catalog.type}:${row.catalog.id}`}
+            title={row.catalog.name}
+            items={row.items}
+            isLoading={row.loading}
+          />
+        ))}
       </div>
     </div>
   );

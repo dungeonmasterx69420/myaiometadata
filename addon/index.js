@@ -4771,6 +4771,10 @@ const { authenticateStreaming, signStreamingToken } = require('./lib/streamingAu
 const { getCachedChannels, getCachedEPG } = require('./lib/iptvParser');
 const jwt = require('jsonwebtoken');
 
+// Internal base URL for proxying to AIOMetadata Stremio routes
+const _internalBase = () => `http://localhost:${PORT}`;
+const AIOMETADATA_UUID = () => process.env.AIOMETADATA_USER_UUID || '';
+
 // --- Streaming Auth ---
 
 // POST /api/streaming/auth/login
@@ -5056,6 +5060,108 @@ addon.get('/api/streaming/browse/season/:tmdbId/:season', authenticateStreaming,
     res.json({ episodes: eps });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch season' });
+  }
+});
+
+// --- AIOMetadata Catalog Integration ---
+
+function metaToContentItem(m) {
+  let tmdbId = null;
+  if (m.id && m.id.startsWith('tmdb:')) tmdbId = parseInt(m.id.replace('tmdb:', ''), 10);
+  return {
+    stremioId: m.id,
+    tmdbId,
+    imdbId: m.id && m.id.startsWith('tt') ? m.id : (m.imdb_id || null),
+    type: m.type === 'series' ? 'series' : m.type === 'anime' ? 'series' : 'movie',
+    title: m.name,
+    poster: m.poster || null,
+    backdrop: m.background || null,
+    overview: m.description || '',
+    rating: m.imdbRating ? parseFloat(m.imdbRating) : (m.rating || 0),
+    year: m.year ? String(m.year) : '',
+  };
+}
+
+// GET /api/streaming/catalogs/manifest
+// Returns the list of catalogs from AIOMetadata manifest for AIOMETADATA_USER_UUID
+addon.get('/api/streaming/catalogs/manifest', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  try {
+    const resp = await axios.get(`${_internalBase()}/stremio/${uuid}/manifest.json`, { timeout: 15000 });
+    const catalogs = (resp.data.catalogs || []).map(c => ({
+      id: c.id,
+      type: c.type,
+      name: c.name,
+      extra: c.extra || [],
+    }));
+    res.json({ catalogs });
+  } catch (error) {
+    consola.error('[Streaming Catalogs] Manifest error:', error.message);
+    res.status(500).json({ error: 'Failed to load catalog manifest' });
+  }
+});
+
+// GET /api/streaming/catalogs/:type/:catalogId?skip=0&genre=
+// Proxies to AIOMetadata catalog route and transforms metas to ContentItem format
+addon.get('/api/streaming/catalogs/:type/:catalogId', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  const { type, catalogId } = req.params;
+  const { skip, genre, search } = req.query;
+  let extraParts = [];
+  if (skip && parseInt(skip) > 0) extraParts.push(`skip=${skip}`);
+  if (genre) extraParts.push(`genre=${encodeURIComponent(genre)}`);
+  if (search) extraParts.push(`search=${encodeURIComponent(search)}`);
+  const extraSeg = extraParts.length > 0 ? `/${extraParts.join('&')}` : '';
+  const url = `${_internalBase()}/stremio/${uuid}/catalog/${type}/${encodeURIComponent(catalogId)}${extraSeg}.json`;
+  try {
+    const resp = await axios.get(url, { timeout: 30000 });
+    const results = (resp.data.metas || []).map(metaToContentItem);
+    res.json({ results });
+  } catch (error) {
+    consola.error('[Streaming Catalogs] Catalog fetch error:', error.message, 'url:', url);
+    res.status(500).json({ results: [], error: 'Failed to load catalog' });
+  }
+});
+
+// GET /api/streaming/aiometa/:type/:stremioId
+// Fetches full metadata from AIOMetadata for any Stremio ID (imdb, tmdb:, anilist:, etc.)
+addon.get('/api/streaming/aiometa/:type/:stremioId', authenticateStreaming, async (req, res) => {
+  const uuid = AIOMETADATA_UUID();
+  if (!uuid) return res.status(500).json({ error: 'AIOMETADATA_USER_UUID not configured' });
+  const { type, stremioId } = req.params;
+  const url = `${_internalBase()}/stremio/${uuid}/meta/${type}/${encodeURIComponent(stremioId)}.json`;
+  try {
+    const resp = await axios.get(url, { timeout: 30000 });
+    const m = resp.data.meta;
+    if (!m) return res.status(404).json({ error: 'Not found' });
+    const meta = {
+      ...metaToContentItem(m),
+      genres: m.genres || [],
+      runtime: m.runtime || null,
+      trailer: m.trailers?.[0]?.source || null,
+      cast: (m.cast || []).slice(0, 10).map(c => ({
+        name: c.name || c,
+        character: c.character || '',
+        photo: c.photo || null,
+      })),
+      seasons: m.videos
+        ? [...new Set(m.videos.filter(v => v.season > 0).map(v => v.season))]
+            .sort((a, b) => a - b)
+            .map(n => ({
+              number: n,
+              name: `Season ${n}`,
+              episodes: m.videos.filter(v => v.season === n).length,
+              poster: null,
+            }))
+        : null,
+      videos: m.videos || null,
+    };
+    res.json(meta);
+  } catch (error) {
+    consola.error('[Streaming AIOmeta] Error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
   }
 });
 

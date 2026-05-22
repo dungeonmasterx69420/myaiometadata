@@ -13,12 +13,12 @@ import {
 import { Navbar } from '../components/Navbar';
 import { StreamSelector } from '../components/StreamSelector';
 import { VideoPlayer } from '../components/VideoPlayer';
-import { getMeta, getSeason, getStreams } from '../lib/api';
-import type { ContentMeta, Episode, Stream } from '../lib/api';
+import { getMeta, getAIOMeta, getSeason, getStreams } from '../lib/api';
+import type { ContentMeta, Episode, Stream, AIOVideo } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Detail() {
-  const { type, tmdbId } = useParams<{ type: string; tmdbId: string }>();
+  const { type, id } = useParams<{ type: string; id: string }>();
   const { token, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -28,6 +28,7 @@ export default function Detail() {
 
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [aioVideos, setAioVideos] = useState<AIOVideo[]>([]);
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
 
   const [showStreamSelector, setShowStreamSelector] = useState(false);
@@ -36,8 +37,10 @@ export default function Detail() {
   const [selectedStreamUrl, setSelectedStreamUrl] = useState<string | null>(null);
   const [playerTitle, setPlayerTitle] = useState('');
 
-  // Pending stream request
-  const [pendingStreamId, setPendingStreamId] = useState<string | null>(null);
+  // true when the content came from AIOMetadata (not a plain tmdb: ID)
+  const isAIOSource = id ? !id.startsWith('tmdb:') : false;
+  // numeric TMDB ID extracted when id is "tmdb:12345"
+  const tmdbNumericId = id?.startsWith('tmdb:') ? id.slice(5) : null;
 
   useEffect(() => {
     if (!authLoading && !token) {
@@ -46,13 +49,22 @@ export default function Detail() {
   }, [token, authLoading, navigate]);
 
   useEffect(() => {
-    if (!type || !tmdbId || !token) return;
+    if (!type || !id || !token) return;
     setLoadingMeta(true);
     setMetaError(null);
-    getMeta(type, tmdbId)
+
+    const fetcher = isAIOSource
+      ? getAIOMeta(type, id)
+      : getMeta(type, tmdbNumericId!);
+
+    fetcher
       .then((data) => {
         setMeta(data);
-        if (data.seasons && data.seasons.length > 0) {
+        if (isAIOSource && data.videos && data.videos.length > 0) {
+          setAioVideos(data.videos);
+          const firstSeason = data.videos[0]?.season ?? 1;
+          setSelectedSeason(firstSeason);
+        } else if (data.seasons && data.seasons.length > 0) {
           setSelectedSeason(data.seasons[0].number);
         }
       })
@@ -60,20 +72,27 @@ export default function Detail() {
         setMetaError(err instanceof Error ? err.message : 'Failed to load details');
       })
       .finally(() => setLoadingMeta(false));
-  }, [type, tmdbId, token]);
+  }, [type, id, token]);
 
-  // Load episodes when season changes
+  // Load TMDB episodes when season changes (only for TMDB-sourced series)
   useEffect(() => {
-    if (!meta || meta.type !== 'series' || !tmdbId) return;
+    if (!meta || meta.type !== 'series' || isAIOSource || !tmdbNumericId) return;
     setLoadingEpisodes(true);
-    getSeason(tmdbId, selectedSeason)
+    getSeason(tmdbNumericId, selectedSeason)
       .then((data) => setEpisodes(data.episodes))
       .catch(() => setEpisodes([]))
       .finally(() => setLoadingEpisodes(false));
-  }, [selectedSeason, meta, tmdbId]);
+  }, [selectedSeason, meta, isAIOSource, tmdbNumericId]);
+
+  // Unique seasons from AIO videos
+  const aioSeasons = isAIOSource
+    ? [...new Set(aioVideos.map((v) => v.season))].filter((s) => s > 0).sort((a, b) => a - b)
+    : [];
+
+  const aioEpisodesForSeason = aioVideos.filter((v) => v.season === selectedSeason);
 
   function buildStreamId(episodeNum?: number): string {
-    const base = meta?.imdbId || `tmdb:${tmdbId}`;
+    const base = meta?.stremioId || meta?.imdbId || (meta?.tmdbId ? `tmdb:${meta.tmdbId}` : id!);
     if (meta?.type === 'series' && episodeNum !== undefined) {
       return `${base}:${selectedSeason}:${episodeNum}`;
     }
@@ -81,7 +100,6 @@ export default function Detail() {
   }
 
   async function openStreamSelector(streamId: string, title: string) {
-    setPendingStreamId(streamId);
     setPlayerTitle(title);
     setStreams([]);
     setShowStreamSelector(true);
@@ -111,7 +129,6 @@ export default function Detail() {
 
   if (!token) return null;
 
-  // Full-screen video player
   if (selectedStreamUrl) {
     return (
       <div className="fixed inset-0 z-50 bg-black">
@@ -145,6 +162,9 @@ export default function Detail() {
   }
 
   const isSeries = meta.type === 'series';
+  const hasSeasons = isAIOSource
+    ? aioSeasons.length > 0
+    : (meta.seasons && meta.seasons.length > 0);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -163,16 +183,11 @@ export default function Detail() {
         <div className="absolute inset-0 bg-gradient-to-r from-gray-950 via-gray-950/70 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-transparent to-gray-950/50" />
 
-        {/* Content */}
         <div className="relative z-10 pt-24 pb-10 px-4 sm:px-8 lg:px-16 flex flex-col sm:flex-row gap-8 items-start max-w-screen-xl mx-auto">
           {/* Poster */}
           <div className="flex-shrink-0 w-40 sm:w-52 rounded-xl overflow-hidden shadow-2xl">
             {meta.poster ? (
-              <img
-                src={meta.poster}
-                alt={meta.title}
-                className="w-full h-full object-cover"
-              />
+              <img src={meta.poster} alt={meta.title} className="w-full h-full object-cover" />
             ) : (
               <div
                 className="w-full bg-gray-800 flex items-center justify-center"
@@ -187,7 +202,6 @@ export default function Detail() {
           <div className="flex-1 min-w-0">
             <h1 className="text-3xl sm:text-4xl font-black text-white mb-3">{meta.title}</h1>
 
-            {/* Meta row */}
             <div className="flex flex-wrap items-center gap-3 mb-4">
               {meta.year && (
                 <div className="flex items-center gap-1 text-gray-300 text-sm">
@@ -211,7 +225,6 @@ export default function Detail() {
               )}
             </div>
 
-            {/* Genres */}
             {meta.genres && meta.genres.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-4">
                 {meta.genres.map((g) => (
@@ -225,14 +238,12 @@ export default function Detail() {
               </div>
             )}
 
-            {/* Overview */}
             {meta.overview && (
               <p className="text-gray-300 text-sm leading-relaxed mb-5 max-w-2xl">
                 {meta.overview}
               </p>
             )}
 
-            {/* Action buttons */}
             <div className="flex flex-wrap gap-3">
               {!isSeries && (
                 <button
@@ -260,23 +271,27 @@ export default function Detail() {
       </div>
 
       {/* Series: Season + Episodes */}
-      {isSeries && meta.seasons && meta.seasons.length > 0 && (
+      {isSeries && hasSeasons && (
         <div className="px-4 sm:px-8 lg:px-16 max-w-screen-xl mx-auto pb-8">
           <div className="flex items-center gap-4 mb-5">
             <h2 className="text-xl font-bold text-white">Episodes</h2>
 
-            {/* Season selector */}
             <div className="relative">
               <select
                 value={selectedSeason}
                 onChange={(e) => setSelectedSeason(Number(e.target.value))}
                 className="appearance-none bg-gray-800 border border-gray-600 text-white rounded-xl px-4 py-2 pr-8 text-sm outline-none focus:border-emerald-500 cursor-pointer"
               >
-                {meta.seasons.map((s) => (
-                  <option key={s.number} value={s.number}>
-                    {s.name || `Season ${s.number}`}
-                  </option>
-                ))}
+                {isAIOSource
+                  ? aioSeasons.map((s) => (
+                      <option key={s} value={s}>Season {s}</option>
+                    ))
+                  : meta.seasons!.map((s) => (
+                      <option key={s.number} value={s.number}>
+                        {s.name || `Season ${s.number}`}
+                      </option>
+                    ))
+                }
               </select>
               <ChevronDown
                 size={14}
@@ -289,7 +304,59 @@ export default function Detail() {
             <div className="flex items-center justify-center py-12">
               <Loader2 size={32} className="text-emerald-500 animate-spin" />
             </div>
+          ) : isAIOSource ? (
+            /* AIOMetadata episode list (from meta.videos) */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {aioEpisodesForSeason.map((vid) => (
+                <button
+                  key={vid.id}
+                  onClick={() =>
+                    openStreamSelector(
+                      buildStreamId(vid.episode),
+                      `${meta.title} — S${selectedSeason}:E${vid.episode} ${vid.title}`
+                    )
+                  }
+                  className="flex gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/40 rounded-xl p-3 text-left transition-all duration-200"
+                >
+                  <div className="flex-shrink-0 w-24 rounded-lg overflow-hidden bg-gray-900">
+                    {vid.thumbnail ? (
+                      <img
+                        src={vid.thumbnail}
+                        alt={vid.title}
+                        className="w-full h-full object-cover"
+                        style={{ aspectRatio: '16/9' }}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div
+                        className="w-full bg-gray-900 flex items-center justify-center"
+                        style={{ aspectRatio: '16/9' }}
+                      >
+                        <Play size={16} className="text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-emerald-500 text-xs font-bold">E{vid.episode}</span>
+                      <p className="text-white text-sm font-medium truncate">{vid.title}</p>
+                    </div>
+                    {vid.overview && (
+                      <p className="text-gray-400 text-xs line-clamp-2 leading-relaxed">
+                        {vid.overview}
+                      </p>
+                    )}
+                    {vid.released && (
+                      <p className="text-gray-500 text-xs mt-1">
+                        {new Date(vid.released).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
+            /* TMDB episode list */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {episodes.map((ep) => (
                 <button
@@ -300,9 +367,8 @@ export default function Detail() {
                       `${meta.title} — S${selectedSeason}:E${ep.number} ${ep.name}`
                     )
                   }
-                  className="flex gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/40 rounded-xl p-3 text-left transition-all duration-200 group"
+                  className="flex gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/40 rounded-xl p-3 text-left transition-all duration-200"
                 >
-                  {/* Still image */}
                   <div className="flex-shrink-0 w-24 rounded-lg overflow-hidden bg-gray-900">
                     {ep.still ? (
                       <img
@@ -320,7 +386,6 @@ export default function Detail() {
                       </div>
                     )}
                   </div>
-
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 mb-1">
                       <span className="text-emerald-500 text-xs font-bold">E{ep.number}</span>
@@ -375,21 +440,14 @@ export default function Detail() {
         </div>
       )}
 
-      {/* Stream selector modal */}
       {showStreamSelector && (
         <StreamSelector
           streams={streams}
           onSelect={handleSelectStream}
-          onClose={() => {
-            setShowStreamSelector(false);
-            setPendingStreamId(null);
-          }}
+          onClose={() => setShowStreamSelector(false)}
           isLoading={loadingStreams}
         />
       )}
-
-      {/* Suppress unused variable warning */}
-      {pendingStreamId && null}
     </div>
   );
 }

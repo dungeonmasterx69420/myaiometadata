@@ -1,7 +1,9 @@
 const BASE = '/api/streaming';
 
 export interface ContentItem {
-  tmdbId: number;
+  stremioId?: string;
+  tmdbId?: number | null;
+  imdbId?: string | null;
   type: string;
   title: string;
   poster: string | null;
@@ -9,7 +11,6 @@ export interface ContentItem {
   overview: string;
   rating: number;
   year: string;
-  imdbId?: string;
 }
 
 export interface Season {
@@ -34,7 +35,17 @@ export interface ContentMeta extends ContentItem {
   seasons?: Season[];
   trailer?: string;
   cast?: CastMember[];
-  imdbId?: string;
+  videos?: AIOVideo[];
+}
+
+export interface AIOVideo {
+  id: string;
+  title: string;
+  season: number;
+  episode: number;
+  released?: string;
+  overview?: string;
+  thumbnail?: string;
 }
 
 export interface Stream {
@@ -57,6 +68,13 @@ export interface CastMember {
   name: string;
   character: string;
   photo: string | null;
+}
+
+export interface CatalogEntry {
+  id: string;
+  type: string;
+  name: string;
+  extra: Array<{ name: string; isRequired?: boolean; options?: string[] }>;
 }
 
 function getToken(): string | null {
@@ -134,6 +152,13 @@ export async function getMeta(
   return apiFetch(`/browse/meta/${type}/${tmdbId}`);
 }
 
+export async function getAIOMeta(
+  type: string,
+  stremioId: string
+): Promise<ContentMeta> {
+  return apiFetch(`/aiometa/${type}/${encodeURIComponent(stremioId)}`);
+}
+
 export async function getSeason(
   tmdbId: string,
   season: number
@@ -146,6 +171,23 @@ export async function getStreams(
   id: string
 ): Promise<{ streams: Stream[] }> {
   return apiFetch(`/streams/${type}/${encodeURIComponent(id)}`);
+}
+
+export async function getCatalogsManifest(): Promise<{ catalogs: CatalogEntry[] }> {
+  return apiFetch('/catalogs/manifest');
+}
+
+export async function getCatalog(
+  type: string,
+  catalogId: string,
+  opts: { skip?: number; genre?: string; search?: string } = {}
+): Promise<{ results: ContentItem[] }> {
+  const params = new URLSearchParams();
+  if (opts.skip && opts.skip > 0) params.set('skip', String(opts.skip));
+  if (opts.genre) params.set('genre', opts.genre);
+  if (opts.search) params.set('search', opts.search);
+  const qs = params.toString();
+  return apiFetch(`/catalogs/${type}/${encodeURIComponent(catalogId)}${qs ? `?${qs}` : ''}`);
 }
 
 export async function getIPTVChannels(

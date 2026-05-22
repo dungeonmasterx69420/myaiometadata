@@ -13,8 +13,13 @@ export function ContentCard({ item, onClick }: ContentCardProps) {
   function handleClick() {
     if (onClick) {
       onClick();
-    } else {
-      navigate(`/app/watch/${item.type}/${item.tmdbId}`);
+      return;
+    }
+    // Prefer stremioId for AIOMetadata-sourced items; fall back to tmdbId for TMDB-sourced
+    if (item.stremioId) {
+      navigate(`/app/watch/${item.type}/${encodeURIComponent(item.stremioId)}`);
+    } else if (item.tmdbId) {
+      navigate(`/app/watch/${item.type}/tmdb:${item.tmdbId}`);
     }
   }
 
