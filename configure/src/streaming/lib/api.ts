@@ -219,6 +219,48 @@ export async function getEPG(channelId?: string): Promise<any> {
   return apiFetch(`/iptv/epg${qs ? `?${qs}` : ''}`);
 }
 
+export interface ProgressItem {
+  contentId: string;
+  type: string;
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  currentTime: number;
+  duration: number;
+  progressPercent: number;
+  watched: boolean;
+  updatedAt: string;
+  season?: number;
+  episode?: number;
+  episodeTitle?: string;
+  streamId?: string;
+}
+
+export async function getProgress(): Promise<{ items: ProgressItem[] }> {
+  return apiFetch('/progress');
+}
+
+export async function getItemProgress(type: string, contentId: string): Promise<ProgressItem | null> {
+  return apiFetch(`/progress/${type}/${encodeURIComponent(contentId)}`);
+}
+
+export async function saveProgress(
+  type: string,
+  contentId: string,
+  data: Partial<ProgressItem>
+): Promise<void> {
+  await apiFetch(`/progress/${type}/${encodeURIComponent(contentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removeProgress(type: string, contentId: string): Promise<void> {
+  await apiFetch(`/progress/${type}/${encodeURIComponent(contentId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export interface UserConfig {
   aiostreamsUrl?: string | null;
   iptvM3uUrl?: string | null;

@@ -1,10 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { HeroSlider } from '../components/HeroSlider';
 import { ContentRow } from '../components/ContentRow';
-import { getCatalogsManifest, getCatalog, getTrending } from '../lib/api';
-import type { ContentItem, CatalogEntry } from '../lib/api';
+import { ContinueWatchingRow } from '../components/ContinueWatchingRow';
+import { getCatalogsManifest, getCatalog, getTrending, getProgress, removeProgress } from '../lib/api';
+import type { ContentItem, CatalogEntry, ProgressItem } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
@@ -23,12 +24,33 @@ export default function Home() {
   const [rows, setRows] = useState<CatalogRow[]>([]);
   const [initializing, setInitializing] = useState(true);
   const fetchedRef = useRef(false);
+  const [continueWatching, setContinueWatching] = useState<ProgressItem[]>([]);
 
   useEffect(() => {
     if (!authLoading && !token) {
       navigate('/app/login', { replace: true });
     }
   }, [token, authLoading, navigate]);
+
+  const fetchContinueWatching = useCallback(() => {
+    if (!token) return;
+    getProgress()
+      .then((data) => {
+        // Show in-progress items (1-89%), most recent first
+        const active = data.items.filter((i) => i.progressPercent >= 1 && !i.watched);
+        setContinueWatching(active);
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    fetchContinueWatching();
+  }, [fetchContinueWatching]);
+
+  async function handleDismiss(item: ProgressItem) {
+    setContinueWatching((prev) => prev.filter((i) => i.contentId !== item.contentId || i.type !== item.type));
+    try { await removeProgress(item.type, item.contentId); } catch {}
+  }
 
   useEffect(() => {
     if (!token || fetchedRef.current) return;
@@ -128,6 +150,7 @@ export default function Home() {
       </div>
 
       <div className="py-8">
+        <ContinueWatchingRow items={continueWatching} onDismiss={handleDismiss} />
         {rows.map((row) => (
           <ContentRow
             key={`${row.catalog.type}:${row.catalog.id}`}

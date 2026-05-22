@@ -5220,6 +5220,65 @@ addon.get('/api/streaming/aiometa/:type/:stremioId', authenticateStreaming, asyn
   }
 });
 
+// --- Watch Progress ---
+
+// GET /api/streaming/progress — all in-progress items for current user
+addon.get('/api/streaming/progress', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const rows = await database.allQuery(
+      `SELECT key, value FROM kv_store WHERE key LIKE 'progress:${userId}:%' ORDER BY updated_at DESC`,
+      []
+    );
+    const items = rows.map(r => JSON.parse(r.value));
+    res.json({ items });
+  } catch {
+    res.json({ items: [] });
+  }
+});
+
+// GET /api/streaming/progress/:type/:id — progress for a single item
+addon.get('/api/streaming/progress/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const key = `progress:${userId}:${req.params.type}:${decodeURIComponent(req.params.id)}`;
+    const row = await database.getQuery("SELECT value FROM kv_store WHERE key = ?", [key]);
+    res.json(row ? JSON.parse(row.value) : null);
+  } catch {
+    res.json(null);
+  }
+});
+
+// PUT /api/streaming/progress/:type/:id — save/update progress
+addon.put('/api/streaming/progress/:type/:id', authenticateStreaming, express.json(), async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const contentId = decodeURIComponent(req.params.id);
+    const key = `progress:${userId}:${req.params.type}:${contentId}`;
+    await upsertKV(key, {
+      ...req.body,
+      type: req.params.type,
+      contentId,
+      updatedAt: new Date().toISOString(),
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to save progress' });
+  }
+});
+
+// DELETE /api/streaming/progress/:type/:id — dismiss from continue watching
+addon.delete('/api/streaming/progress/:type/:id', authenticateStreaming, async (req, res) => {
+  try {
+    const userId = req.streamingUser.id;
+    const key = `progress:${userId}:${req.params.type}:${decodeURIComponent(req.params.id)}`;
+    await database.runQuery("DELETE FROM kv_store WHERE key = ?", [key]);
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to remove progress' });
+  }
+});
+
 // --- Streaming Admin ---
 
 // GET /api/streaming/admin/users
