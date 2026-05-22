@@ -4775,6 +4775,41 @@ const jwt = require('jsonwebtoken');
 const _internalBase = () => `http://localhost:${PORT}`;
 const AIOMETADATA_UUID = () => process.env.AIOMETADATA_USER_UUID || '';
 
+// --- Streaming admin helpers ---
+
+function requireAdmin(req, res, next) {
+  if (!req.streamingUser?.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+async function upsertKV(key, value) {
+  const json = JSON.stringify(value);
+  if (database.type === 'sqlite') {
+    await database.runQuery(
+      "INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+      [key, json]
+    );
+  } else {
+    await database.runQuery(
+      `INSERT INTO kv_store (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, json]
+    );
+  }
+}
+
+async function getUserConfig(userId) {
+  try {
+    const row = await database.getQuery(
+      "SELECT value FROM kv_store WHERE key = ?",
+      [`user_config:${userId}`]
+    );
+    return row ? JSON.parse(row.value) : null;
+  } catch { return null; }
+}
+
 // --- Streaming Auth ---
 
 // POST /api/streaming/auth/login
@@ -4812,8 +4847,20 @@ addon.post('/api/streaming/auth/login', express.json(), async (req, res) => {
     const userEmail = authResult.email || '';
     const displayName = authResult.username || authResult.name || username;
 
-    const token = signStreamingToken({ id: userId, username: displayName, email: userEmail });
-    res.json({ token, user: { id: userId, username: displayName, email: userEmail } });
+    const adminUsers = (process.env.STREAMING_ADMIN_USERS || '')
+      .split(',').map(u => u.trim().toLowerCase()).filter(Boolean);
+    const isAdmin = adminUsers.includes(displayName.toLowerCase()) ||
+                    adminUsers.includes(String(userId).toLowerCase());
+
+    // Track user profile for admin panel
+    try {
+      await upsertKV(`user_profile:${userId}`, {
+        id: userId, username: displayName, email: userEmail, lastLogin: new Date().toISOString()
+      });
+    } catch { /* non-fatal */ }
+
+    const token = signStreamingToken({ id: userId, username: displayName, email: userEmail, isAdmin });
+    res.json({ token, user: { id: userId, username: displayName, email: userEmail, isAdmin } });
   } catch (error) {
     consola.error('[Streaming Auth] Login error:', error.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -4833,8 +4880,10 @@ const IPTV_EPG_URL = process.env.IPTV_EPG_URL || '';
 // GET /api/streaming/iptv/channels?search=&group=
 addon.get('/api/streaming/iptv/channels', authenticateStreaming, async (req, res) => {
   try {
-    if (!IPTV_M3U_URL) return res.status(500).json({ error: 'IPTV not configured' });
-    let channels = await getCachedChannels(IPTV_M3U_URL);
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const m3uUrl = userCfg?.iptvM3uUrl || IPTV_M3U_URL;
+    if (!m3uUrl) return res.status(500).json({ error: 'IPTV not configured' });
+    let channels = await getCachedChannels(m3uUrl);
     const { search, group } = req.query;
     if (search) {
       const q = search.toLowerCase();
@@ -4854,8 +4903,10 @@ addon.get('/api/streaming/iptv/channels', authenticateStreaming, async (req, res
 // GET /api/streaming/iptv/groups
 addon.get('/api/streaming/iptv/groups', authenticateStreaming, async (req, res) => {
   try {
-    if (!IPTV_M3U_URL) return res.status(500).json({ error: 'IPTV not configured' });
-    const channels = await getCachedChannels(IPTV_M3U_URL);
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const m3uUrl = userCfg?.iptvM3uUrl || IPTV_M3U_URL;
+    if (!m3uUrl) return res.status(500).json({ error: 'IPTV not configured' });
+    const channels = await getCachedChannels(m3uUrl);
     const groups = [...new Set(channels.map(c => c.group).filter(Boolean))].sort();
     res.json({ groups });
   } catch (error) {
@@ -4866,8 +4917,10 @@ addon.get('/api/streaming/iptv/groups', authenticateStreaming, async (req, res) 
 // GET /api/streaming/iptv/epg?channelId=
 addon.get('/api/streaming/iptv/epg', authenticateStreaming, async (req, res) => {
   try {
-    if (!IPTV_EPG_URL) return res.json({});
-    const epg = await getCachedEPG(IPTV_EPG_URL);
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const epgUrl = userCfg?.iptvEpgUrl || IPTV_EPG_URL;
+    if (!epgUrl) return res.json({});
+    const epg = await getCachedEPG(epgUrl);
     const { channelId } = req.query;
     if (channelId) {
       return res.json({ programs: epg[channelId] || [] });
@@ -4929,9 +4982,11 @@ const AIOSTREAMS_URL = process.env.AIOSTREAMS_URL || '';
 // type = movie | series, id = tt1234567 or tt1234567:1:2
 addon.get('/api/streaming/streams/:type/:id', authenticateStreaming, async (req, res) => {
   try {
-    if (!AIOSTREAMS_URL) return res.status(500).json({ error: 'AIOStreams not configured' });
+    const userCfg = await getUserConfig(req.streamingUser.id);
+    const baseUrl = (userCfg?.aiostreamsUrl) || AIOSTREAMS_URL;
+    if (!baseUrl) return res.status(500).json({ error: 'AIOStreams not configured' });
     const { type, id } = req.params;
-    const aioUrl = `${AIOSTREAMS_URL.replace(/\/$/, '')}/stream/${type}/${encodeURIComponent(id)}.json`;
+    const aioUrl = `${baseUrl.replace(/\/$/, '')}/stream/${type}/${encodeURIComponent(id)}.json`;
     const response = await axios.get(aioUrl, { timeout: 30000 });
     res.json(response.data);
   } catch (error) {
@@ -5162,6 +5217,64 @@ addon.get('/api/streaming/aiometa/:type/:stremioId', authenticateStreaming, asyn
   } catch (error) {
     consola.error('[Streaming AIOmeta] Error:', error.message);
     res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
+});
+
+// --- Streaming Admin ---
+
+// GET /api/streaming/admin/users
+addon.get('/api/streaming/admin/users', authenticateStreaming, requireAdmin, async (req, res) => {
+  try {
+    const profileRows = await database.allQuery(
+      "SELECT key, value, updated_at FROM kv_store WHERE key LIKE 'user_profile:%' ORDER BY updated_at DESC",
+      []
+    );
+    const users = await Promise.all(profileRows.map(async (row) => {
+      const profile = JSON.parse(row.value);
+      const configRow = await database.getQuery(
+        "SELECT value FROM kv_store WHERE key = ?",
+        [`user_config:${profile.id}`]
+      );
+      const config = configRow ? JSON.parse(configRow.value) : {};
+      return { ...profile, config };
+    }));
+    res.json({ users });
+  } catch (error) {
+    consola.error('[Streaming Admin] Users list error:', error.message);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+// PUT /api/streaming/admin/users/:userId/config
+addon.put('/api/streaming/admin/users/:userId/config', authenticateStreaming, requireAdmin, express.json(), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { aiostreamsUrl, iptvM3uUrl, iptvEpgUrl, notes } = req.body;
+    const existing = await getUserConfig(userId) || {};
+    const updated = {
+      ...existing,
+      ...(aiostreamsUrl !== undefined ? { aiostreamsUrl: aiostreamsUrl || null } : {}),
+      ...(iptvM3uUrl !== undefined ? { iptvM3uUrl: iptvM3uUrl || null } : {}),
+      ...(iptvEpgUrl !== undefined ? { iptvEpgUrl: iptvEpgUrl || null } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    };
+    await upsertKV(`user_config:${userId}`, updated);
+    res.json({ ok: true, config: updated });
+  } catch (error) {
+    consola.error('[Streaming Admin] Config update error:', error.message);
+    res.status(500).json({ error: 'Failed to update user config' });
+  }
+});
+
+// DELETE /api/streaming/admin/users/:userId/config
+addon.delete('/api/streaming/admin/users/:userId/config', authenticateStreaming, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    await database.runQuery("DELETE FROM kv_store WHERE key = ?", [`user_config:${userId}`]);
+    res.json({ ok: true });
+  } catch (error) {
+    consola.error('[Streaming Admin] Config delete error:', error.message);
+    res.status(500).json({ error: 'Failed to reset user config' });
   }
 });
 

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Menu, X, ChevronDown, Tv, Film, Home, LogOut, User } from 'lucide-react';
+import { Search, Menu, X, ChevronDown, Tv, Film, Home, LogOut, User, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export function Navbar() {
-  const { user, logout } = useAuth();
+  const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -54,12 +54,20 @@ export function Navbar() {
                 <Tv size={15} />
                 IPTV
               </Link>
+              {isAdmin && (
+                <Link
+                  to="/app/admin"
+                  className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 transition-colors duration-200 text-sm font-medium"
+                >
+                  <ShieldCheck size={15} />
+                  Admin
+                </Link>
+              )}
             </div>
           </div>
 
           {/* Right side */}
           <div className="flex items-center gap-3">
-            {/* Search icon */}
             <Link
               to="/app/search"
               className="p-2 text-gray-300 hover:text-white transition-colors duration-200"
@@ -88,8 +96,24 @@ export function Navbar() {
                     <div className="absolute right-0 top-full mt-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 overflow-hidden">
                       <div className="px-4 py-3 border-b border-gray-700">
                         <p className="text-sm font-medium text-white truncate">{user.username}</p>
-                        <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                        <p className="text-xs text-gray-400 truncate">{user.email || 'Member'}</p>
+                        {isAdmin && (
+                          <span className="inline-flex items-center gap-1 mt-1 text-xs text-emerald-400 font-semibold">
+                            <ShieldCheck size={11} />
+                            Admin
+                          </span>
+                        )}
                       </div>
+                      {isAdmin && (
+                        <Link
+                          to="/app/admin"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-emerald-400 hover:text-emerald-300 hover:bg-gray-800 transition-colors duration-150"
+                        >
+                          <ShieldCheck size={15} />
+                          Admin Panel
+                        </Link>
+                      )}
                       <button
                         onClick={handleLogout}
                         className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-gray-800 transition-colors duration-150"
@@ -151,6 +175,16 @@ export function Navbar() {
               <Tv size={16} />
               IPTV
             </Link>
+            {isAdmin && (
+              <Link
+                to="/app/admin"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 transition-all duration-200 text-sm font-medium"
+              >
+                <ShieldCheck size={16} />
+                Admin Panel
+              </Link>
+            )}
 
             {user && (
               <div className="pt-2 border-t border-gray-700 mt-2">

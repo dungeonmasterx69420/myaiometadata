@@ -7,6 +7,7 @@ import Detail from './pages/Detail';
 import IPTVChannels from './pages/IPTVChannels';
 import IPTVPlayer from './pages/IPTVPlayer';
 import EPGGuide from './pages/EPGGuide';
+import Admin from './pages/Admin';
 import { Loader2 } from 'lucide-react';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ function StreamingRoutes() {
       <Route path="iptv" element={<ProtectedRoute><IPTVChannels /></ProtectedRoute>} />
       <Route path="iptv/watch/:channelId" element={<ProtectedRoute><IPTVPlayer /></ProtectedRoute>} />
       <Route path="iptv/guide" element={<ProtectedRoute><EPGGuide /></ProtectedRoute>} />
+      <Route path="admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/app" replace />} />
     </Routes>
   );

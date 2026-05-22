@@ -5,12 +5,14 @@ interface User {
   id: string;
   username: string;
   email: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextValue {
   user: User | null;
   token: string | null;
   isLoading: boolean;
+  isAdmin: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -52,8 +54,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  const isAdmin = user?.isAdmin === true;
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, isAdmin, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -61,8 +65,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
   return ctx;
 }

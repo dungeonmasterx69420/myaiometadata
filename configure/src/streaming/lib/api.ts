@@ -218,3 +218,38 @@ export async function getEPG(channelId?: string): Promise<any> {
   const qs = params.toString();
   return apiFetch(`/iptv/epg${qs ? `?${qs}` : ''}`);
 }
+
+export interface UserConfig {
+  aiostreamsUrl?: string | null;
+  iptvM3uUrl?: string | null;
+  iptvEpgUrl?: string | null;
+  notes?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  lastLogin: string;
+  config: UserConfig;
+}
+
+export async function adminGetUsers(): Promise<{ users: UserProfile[] }> {
+  return apiFetch('/admin/users');
+}
+
+export async function adminUpdateUserConfig(
+  userId: string,
+  config: Partial<UserConfig>
+): Promise<{ ok: boolean; config: UserConfig }> {
+  return apiFetch(`/admin/users/${encodeURIComponent(userId)}/config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function adminResetUserConfig(userId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/admin/users/${encodeURIComponent(userId)}/config`, {
+    method: 'DELETE',
+  });
+}
