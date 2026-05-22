@@ -214,7 +214,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
       {/* Loading spinner */}
       {isLoading && !error && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <Loader2 size={52} className="text-red-500 animate-spin" />
+          <Loader2 size={52} className="text-emerald-500 animate-spin" />
         </div>
       )}
 
@@ -222,7 +222,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
           <div className="text-center px-6">
-            <p className="text-red-400 text-lg font-semibold mb-2">Playback Error</p>
+            <p className="text-emerald-400 text-lg font-semibold mb-2">Playback Error</p>
             <p className="text-gray-300 text-sm">{error}</p>
           </div>
         </div>
@@ -238,7 +238,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
           {onBack && (
             <button
               onClick={onBack}
-              className="flex items-center gap-2 text-white hover:text-red-400 transition-colors duration-200 text-sm font-medium"
+              className="flex items-center gap-2 text-white hover:text-emerald-400 transition-colors duration-200 text-sm font-medium"
             >
               <ArrowLeft size={20} />
               Back
@@ -263,7 +263,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
               value={currentTime}
               step={0.1}
               onChange={handleSeek}
-              className="w-full h-1 appearance-none bg-white/30 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-500 accent-red-500"
+              className="w-full h-1 appearance-none bg-white/30 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 accent-emerald-500"
               style={{
                 background: `linear-gradient(to right, #ef4444 ${progress}%, rgba(255,255,255,0.3) ${progress}%)`,
               }}
@@ -275,7 +275,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
               {/* Play/Pause */}
               <button
                 onClick={togglePlay}
-                className="text-white hover:text-red-400 transition-colors duration-200"
+                className="text-white hover:text-emerald-400 transition-colors duration-200"
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? <Pause size={22} /> : <Play size={22} className="fill-white" />}
@@ -285,7 +285,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
               <div className="flex items-center gap-2">
                 <button
                   onClick={toggleMute}
-                  className="text-white hover:text-red-400 transition-colors duration-200"
+                  className="text-white hover:text-emerald-400 transition-colors duration-200"
                   aria-label={isMuted ? 'Unmute' : 'Mute'}
                 >
                   {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -297,7 +297,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
                   step={0.05}
                   value={isMuted ? 0 : volume}
                   onChange={handleVolumeChange}
-                  className="w-20 h-1 accent-red-500 cursor-pointer"
+                  className="w-20 h-1 accent-emerald-500 cursor-pointer"
                 />
               </div>
 
@@ -311,7 +311,7 @@ export function VideoPlayer({ url, title, onBack }: VideoPlayerProps) {
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              className="text-white hover:text-red-400 transition-colors duration-200"
+              className="text-white hover:text-emerald-400 transition-colors duration-200"
               aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             >
               {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}

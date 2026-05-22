@@ -83,7 +83,7 @@ export default function Search() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -107,12 +107,12 @@ export default function Search() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search movies, TV shows..."
-            className="w-full bg-gray-800 border border-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-2xl pl-12 pr-5 py-3.5 text-white placeholder-gray-500 outline-none transition-all duration-200 text-base"
+            className="w-full bg-gray-800 border border-gray-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-2xl pl-12 pr-5 py-3.5 text-white placeholder-gray-500 outline-none transition-all duration-200 text-base"
           />
           {isSearching && (
             <Loader2
               size={18}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-red-500 animate-spin"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500 animate-spin"
             />
           )}
         </div>
@@ -125,7 +125,7 @@ export default function Search() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                 activeTab === tab.id
-                  ? 'bg-red-600 text-white shadow-lg shadow-red-900/30'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
                   : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
               }`}
             >

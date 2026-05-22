@@ -77,7 +77,7 @@ export default function IPTVChannels() {
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -106,7 +106,7 @@ export default function IPTVChannels() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search channels..."
-            className="w-full bg-gray-800 border border-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-gray-500 outline-none transition-all duration-200 text-sm"
+            className="w-full bg-gray-800 border border-gray-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-gray-500 outline-none transition-all duration-200 text-sm"
           />
         </div>
 
@@ -122,7 +122,7 @@ export default function IPTVChannels() {
                 onClick={() => setActiveGroup(group)}
                 className={`flex-shrink-0 px-4 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                   activeGroup === group
-                    ? 'bg-red-600 text-white'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                 }`}
               >
@@ -134,7 +134,7 @@ export default function IPTVChannels() {
 
         {/* Error */}
         {error && (
-          <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-2.5 text-red-400 text-sm mb-6">
+          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg px-4 py-2.5 text-emerald-400 text-sm mb-6">
             {error}
           </div>
         )}
@@ -143,7 +143,7 @@ export default function IPTVChannels() {
         {favoriteChannels.length > 0 && (
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-3">
-              <Heart size={16} className="text-red-500 fill-red-500" />
+              <Heart size={16} className="text-emerald-500 fill-emerald-500" />
               <h2 className="text-lg font-bold text-white">Favorites</h2>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">

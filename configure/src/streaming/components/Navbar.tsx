@@ -20,8 +20,8 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex items-center gap-8">
-            <Link to="/app" className="text-2xl font-black text-red-600 tracking-widest select-none">
-              STREAMVAULT
+            <Link to="/app" className="text-2xl font-black text-emerald-600 tracking-widest select-none">
+              DungeonCast
             </Link>
 
             {/* Desktop nav links */}
@@ -75,7 +75,7 @@ export function Navbar() {
                   onClick={() => setUserMenuOpen((v) => !v)}
                   className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium"
                 >
-                  <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-bold text-xs">
+                  <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-xs">
                     {user.username.charAt(0).toUpperCase()}
                   </div>
                   <span className="max-w-24 truncate">{user.username}</span>

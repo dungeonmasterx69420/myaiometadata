@@ -16,7 +16,7 @@ export function IPTVChannelCard({
 }: IPTVChannelCardProps) {
   return (
     <div
-      className="relative flex flex-col items-center bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-red-600/50 rounded-xl p-4 cursor-pointer transition-all duration-200 group"
+      className="relative flex flex-col items-center bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/50 rounded-xl p-4 cursor-pointer transition-all duration-200 group"
       onClick={onClick}
     >
       {/* Favorite toggle */}
@@ -27,12 +27,12 @@ export function IPTVChannelCard({
         }}
         className={`absolute top-2.5 right-2.5 p-1 rounded-full transition-all duration-200 z-10 ${
           isFavorite
-            ? 'text-red-500 bg-red-500/10'
-            : 'text-gray-500 hover:text-red-400 bg-transparent hover:bg-red-500/10'
+            ? 'text-emerald-500 bg-emerald-500/10'
+            : 'text-gray-500 hover:text-emerald-400 bg-transparent hover:bg-emerald-500/10'
         }`}
         aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       >
-        <Heart size={15} className={isFavorite ? 'fill-red-500' : ''} />
+        <Heart size={15} className={isFavorite ? 'fill-emerald-500' : ''} />
       </button>
 
       {/* Logo */}

@@ -74,7 +74,7 @@ export default function EPGGuide() {
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -92,7 +92,7 @@ export default function EPGGuide() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search channels..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm outline-none focus:border-red-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm outline-none focus:border-emerald-500"
             />
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -105,7 +105,7 @@ export default function EPGGuide() {
                   key={ch.id}
                   onClick={() => { setSelectedChannel(ch); setSelectedProgram(null); }}
                   className={`w-full text-left flex items-center gap-3 px-3 py-3 border-b border-gray-800/50 transition-colors ${
-                    isActive ? 'bg-red-900/30 border-l-2 border-l-red-500' : 'hover:bg-gray-800/50'
+                    isActive ? 'bg-emerald-900/30 border-l-2 border-l-emerald-500' : 'hover:bg-gray-800/50'
                   }`}
                 >
                   {ch.logo ? (
@@ -151,7 +151,7 @@ export default function EPGGuide() {
           <div className="flex-1 overflow-y-auto p-4">
             {epgLoading && (
               <div className="flex justify-center py-8">
-                <Loader2 size={28} className="text-red-500 animate-spin" />
+                <Loader2 size={28} className="text-emerald-500 animate-spin" />
               </div>
             )}
 
@@ -172,18 +172,18 @@ export default function EPGGuide() {
                     onClick={() => setSelectedProgram(isSelected ? null : prog)}
                     className={`w-full text-left flex items-start gap-4 rounded-xl p-4 mb-2 transition-all border ${
                       live
-                        ? 'bg-red-900/20 border-red-700/40'
+                        ? 'bg-emerald-900/20 border-emerald-700/40'
                         : isSelected
                         ? 'bg-gray-800 border-gray-600'
                         : 'border-transparent hover:bg-gray-800/50'
                     }`}
                   >
                     <div className="shrink-0 text-right w-20">
-                      <p className={`text-sm font-mono ${live ? 'text-red-400' : 'text-gray-400'}`}>
+                      <p className={`text-sm font-mono ${live ? 'text-emerald-400' : 'text-gray-400'}`}>
                         {prog.start ? formatTime(prog.start) : ''}
                       </p>
                       {live && (
-                        <span className="text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-bold">LIVE</span>
+                        <span className="text-xs bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold">LIVE</span>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">

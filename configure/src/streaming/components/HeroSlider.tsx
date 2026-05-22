@@ -31,7 +31,7 @@ export function HeroSlider({ items }: HeroSliderProps) {
   if (total === 0) {
     return (
       <div className="w-full bg-gray-900 flex items-center justify-center" style={{ minHeight: '50vh' }}>
-        <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -63,7 +63,7 @@ export function HeroSlider({ items }: HeroSliderProps) {
       <div className="relative z-10 flex flex-col justify-end h-full px-6 sm:px-10 lg:px-16 pb-16 sm:pb-20">
         <div className="max-w-xl">
           {/* Type badge */}
-          <span className="inline-block text-xs font-bold tracking-widest text-red-500 uppercase mb-2">
+          <span className="inline-block text-xs font-bold tracking-widest text-emerald-500 uppercase mb-2">
             {item.type === 'series' ? 'TV Show' : 'Movie'}
           </span>
 
@@ -96,7 +96,7 @@ export function HeroSlider({ items }: HeroSliderProps) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate(`/app/watch/${item.type}/${item.tmdbId}`)}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded-lg transition-all duration-200 text-sm shadow-lg hover:shadow-red-900/50"
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-lg transition-all duration-200 text-sm shadow-lg hover:shadow-emerald-900/50"
             >
               <Play size={16} className="fill-white" />
               Play Now
@@ -141,7 +141,7 @@ export function HeroSlider({ items }: HeroSliderProps) {
               onClick={() => setCurrent(i)}
               className={`rounded-full transition-all duration-300 ${
                 i === current
-                  ? 'w-6 h-2 bg-red-500'
+                  ? 'w-6 h-2 bg-emerald-500'
                   : 'w-2 h-2 bg-white/40 hover:bg-white/70'
               }`}
               aria-label={`Slide ${i + 1}`}

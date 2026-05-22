@@ -14,7 +14,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }

@@ -34,7 +34,7 @@ export function StreamSelector({ streams, onSelect, onClose, isLoading }: Stream
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <Loader2 size={36} className="text-red-500 animate-spin" />
+              <Loader2 size={36} className="text-emerald-500 animate-spin" />
               <p className="text-gray-400 text-sm">Loading streams...</p>
             </div>
           ) : streams.length === 0 ? (
@@ -53,10 +53,10 @@ export function StreamSelector({ streams, onSelect, onClose, isLoading }: Stream
                 <button
                   key={idx}
                   onClick={() => onSelect(stream.url)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-red-600/50 transition-all duration-200 text-left group"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/50 transition-all duration-200 text-left group"
                 >
-                  <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-red-600/20 border border-red-600/30 flex items-center justify-center group-hover:bg-red-600/30 transition-colors">
-                    <Play size={16} className="text-red-400 fill-red-400" />
+                  <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-emerald-600/20 border border-emerald-600/30 flex items-center justify-center group-hover:bg-emerald-600/30 transition-colors">
+                    <Play size={16} className="text-emerald-400 fill-emerald-400" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-white font-medium text-sm truncate">

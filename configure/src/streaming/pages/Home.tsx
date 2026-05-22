@@ -43,7 +43,7 @@ export default function Home() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -61,7 +61,7 @@ export default function Home() {
             className="w-full bg-gray-900 flex items-center justify-center"
             style={{ minHeight: '50vh' }}
           >
-            <Loader2 size={40} className="text-red-500 animate-spin" />
+            <Loader2 size={40} className="text-emerald-500 animate-spin" />
           </div>
         ) : (
           <HeroSlider items={trendingMovies.slice(0, 5)} />
@@ -71,7 +71,7 @@ export default function Home() {
       {/* Error */}
       {error && (
         <div className="px-6 py-3">
-          <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-2.5 text-red-400 text-sm">
+          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg px-4 py-2.5 text-emerald-400 text-sm">
             {error}
           </div>
         </div>

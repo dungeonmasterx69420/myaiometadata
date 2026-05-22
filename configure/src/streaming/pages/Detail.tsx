@@ -104,7 +104,7 @@ export default function Detail() {
   if (authLoading || loadingMeta) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -129,7 +129,7 @@ export default function Detail() {
       <div className="min-h-screen bg-gray-950 text-white">
         <Navbar />
         <div className="pt-20 flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4">
-          <p className="text-red-400 text-lg font-semibold">
+          <p className="text-emerald-400 text-lg font-semibold">
             {metaError || 'Content not found'}
           </p>
           <button
@@ -237,7 +237,7 @@ export default function Detail() {
               {!isSeries && (
                 <button
                   onClick={() => openStreamSelector(buildStreamId(), meta.title)}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-200 text-sm shadow-lg"
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-200 text-sm shadow-lg"
                 >
                   <Play size={16} className="fill-white" />
                   Play Movie
@@ -250,7 +250,7 @@ export default function Detail() {
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white font-semibold px-5 py-3 rounded-xl transition-all duration-200 text-sm"
                 >
-                  <Youtube size={16} className="text-red-500" />
+                  <Youtube size={16} className="text-emerald-500" />
                   Trailer
                 </a>
               )}
@@ -270,7 +270,7 @@ export default function Detail() {
               <select
                 value={selectedSeason}
                 onChange={(e) => setSelectedSeason(Number(e.target.value))}
-                className="appearance-none bg-gray-800 border border-gray-600 text-white rounded-xl px-4 py-2 pr-8 text-sm outline-none focus:border-red-500 cursor-pointer"
+                className="appearance-none bg-gray-800 border border-gray-600 text-white rounded-xl px-4 py-2 pr-8 text-sm outline-none focus:border-emerald-500 cursor-pointer"
               >
                 {meta.seasons.map((s) => (
                   <option key={s.number} value={s.number}>
@@ -287,7 +287,7 @@ export default function Detail() {
 
           {loadingEpisodes ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 size={32} className="text-red-500 animate-spin" />
+              <Loader2 size={32} className="text-emerald-500 animate-spin" />
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -300,7 +300,7 @@ export default function Detail() {
                       `${meta.title} — S${selectedSeason}:E${ep.number} ${ep.name}`
                     )
                   }
-                  className="flex gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-red-600/40 rounded-xl p-3 text-left transition-all duration-200 group"
+                  className="flex gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-emerald-600/40 rounded-xl p-3 text-left transition-all duration-200 group"
                 >
                   {/* Still image */}
                   <div className="flex-shrink-0 w-24 rounded-lg overflow-hidden bg-gray-900">
@@ -323,7 +323,7 @@ export default function Detail() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-red-500 text-xs font-bold">E{ep.number}</span>
+                      <span className="text-emerald-500 text-xs font-bold">E{ep.number}</span>
                       <p className="text-white text-sm font-medium truncate">{ep.name}</p>
                     </div>
                     {ep.overview && (

@@ -46,7 +46,7 @@ export default function IPTVPlayer() {
   if (authLoading || loading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
-        <Loader2 size={40} className="text-red-500 animate-spin" />
+        <Loader2 size={40} className="text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -57,12 +57,12 @@ export default function IPTVPlayer() {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-4 px-4">
         <Tv size={48} className="text-gray-600" />
-        <p className="text-red-400 text-lg font-semibold text-center">
+        <p className="text-emerald-400 text-lg font-semibold text-center">
           {error || 'Channel not found'}
         </p>
         <button
           onClick={() => navigate('/app/iptv')}
-          className="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors duration-200 text-sm"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors duration-200 text-sm"
         >
           Back to Channels
         </button>
